@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,6 +17,16 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      # Εγκατάσταση Android SDK στο cloud
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required Android packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      # Εγκαθιστούμε Gradle 8.7 και φτιάχνουμε wrapper
       - name: Install Gradle 8.7 via SDKMAN and generate wrapper
         run: |
           curl -s "https://get.sdkman.io" | bash
@@ -24,6 +35,7 @@ jobs:
           cd android
           gradle wrapper --gradle-version 8.7
 
+      # Δημιουργούμε ή επαναφέρουμε keystore
       - name: Create or restore keystore
         run: |
           cd android
@@ -32,12 +44,18 @@ jobs:
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > upload-keystore.jks
           else
             echo "Generating new keystore"
-            keytool -genkey -v -keystore upload-keystore.jks -storepass "${{ secrets.KEYSTORE_PASSWORD }}" -keypass "${{ secrets.KEY_PASSWORD }}" -alias "${{ secrets.KEY_ALIAS }}" -keyalg RSA -keysize 2048 -validity 9125 -dname "CN=Tap3,O=Tap3,L=Athens,C=GR"
+            keytool -genkey -v -keystore upload-keystore.jks \
+              -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+              -keypass "${{ secrets.KEY_PASSWORD }}" \
+              -alias "${{ secrets.KEY_ALIAS }}" \
+              -keyalg RSA -keysize 2048 -validity 9125 \
+              -dname "CN=Tap3,O=Tap3,L=Athens,C=GR"
           fi
 
       - name: Build Release AAB
         working-directory: android
         env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
           KEYSTORE_PATH: ${{ github.workspace }}/android/upload-keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
