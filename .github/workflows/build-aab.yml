@@ -17,7 +17,6 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      # Εγκατάσταση Android SDK στο cloud
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -26,19 +25,39 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      # Εγκαθιστούμε Gradle 8.7 και φτιάχνουμε wrapper
+      - name: Show repo tree (debug)
+        run: |
+          echo "PWD:" && pwd
+          echo "Root listing:" && ls -la
+          echo "Search for 'android' folder:"
+          find . -maxdepth 3 -type d -name "android" -print
+
+      - name: Locate ANDROID_DIR dynamically
+        id: locate
+        run: |
+          if [ -d "./android" ]; then
+            echo "ANDROID_DIR=./android" >> $GITHUB_ENV
+          else
+            FOUND=$(find . -maxdepth 3 -type d -name "android" | head -n 1)
+            if [ -z "$FOUND" ]; then
+              echo "❌ Δεν βρέθηκε φάκελος 'android' στο repo. Βεβαιώσου ότι ανέβασες τον φάκελο android (όχι zip)."
+              exit 1
+            fi
+            echo "ANDROID_DIR=$FOUND" >> $GITHUB_ENV
+          fi
+          echo "Found ANDROID_DIR=$FOUND"
+
       - name: Install Gradle 8.7 via SDKMAN and generate wrapper
         run: |
           curl -s "https://get.sdkman.io" | bash
           source "$HOME/.sdkman/bin/sdkman-init.sh"
           sdk install gradle 8.7
-          cd android
+          cd "$ANDROID_DIR"
           gradle wrapper --gradle-version 8.7
 
-      # Δημιουργούμε ή επαναφέρουμε keystore
       - name: Create or restore keystore
         run: |
-          cd android
+          cd "$ANDROID_DIR"
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "Restoring keystore from secret"
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > upload-keystore.jks
@@ -53,21 +72,22 @@ jobs:
           fi
 
       - name: Build Release AAB
-        working-directory: android
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          KEYSTORE_PATH: ${{ github.workspace }}/android/upload-keystore.jks
+          KEYSTORE_PATH: ${{ github.workspace }}/$ANDROID_DIR/upload-keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          cd "$ANDROID_DIR"
           ./gradlew --no-daemon clean bundleRelease
 
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/bundle/release/app-release.aab artifacts/Tap3.aab
-          cp android/upload-keystore.jks artifacts/upload-keystore.jks
+          AAB_PATH="$ANDROID_DIR/app/build/outputs/bundle/release/app-release.aab"
+          cp "$AAB_PATH" artifacts/Tap3.aab
+          cp "$ANDROID_DIR/upload-keystore.jks" artifacts/upload-keystore.jks
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
