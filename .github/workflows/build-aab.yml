@@ -1,0 +1,58 @@
+name: Build AAB (Tap 3)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Gradle 8.7 via SDKMAN and generate wrapper
+        run: |
+          curl -s "https://get.sdkman.io" | bash
+          source "$HOME/.sdkman/bin/sdkman-init.sh"
+          sdk install gradle 8.7
+          cd android
+          gradle wrapper --gradle-version 8.7
+
+      - name: Create or restore keystore
+        run: |
+          cd android
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Restoring keystore from secret"
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > upload-keystore.jks
+          else
+            echo "Generating new keystore"
+            keytool -genkey -v -keystore upload-keystore.jks -storepass "${{ secrets.KEYSTORE_PASSWORD }}" -keypass "${{ secrets.KEY_PASSWORD }}" -alias "${{ secrets.KEY_ALIAS }}" -keyalg RSA -keysize 2048 -validity 9125 -dname "CN=Tap3,O=Tap3,L=Athens,C=GR"
+          fi
+
+      - name: Build Release AAB
+        working-directory: android
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/android/upload-keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon clean bundleRelease
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/bundle/release/app-release.aab artifacts/Tap3.aab
+          cp android/upload-keystore.jks artifacts/upload-keystore.jks
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tap3-AAB-and-Keystore
+          path: artifacts/*
